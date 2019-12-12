@@ -97,27 +97,14 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
         return response.toXml();
     }
 
-    private String SecretSnowmanTable = null;
-    private String getSecretSnowmanTable() { return this.SecretSnowmanTable; }
+    private String secretSnowmanTable = null;
+    private PhoneNumber adminPhoneNumber = null;
+    private PhoneNumber secretSnowmanPhoneNumber = null;
 
-    private PhoneNumber AdminPhoneNumber = null;
-    private PhoneNumber getAdminPhoneNumber() { return this.AdminPhoneNumber; }
-
-    private PhoneNumber SecretSnowmanPhoneNumber = null;
-    private PhoneNumber getSecretSnowmanPhoneNumber() { return this.SecretSnowmanPhoneNumber; }
-
-    private String TwilioAccountSID = null;
-    private String getTwilioAccountSID() { return this.TwilioAccountSID; }
-
-    private String TwilioAccountSecret = null;
-    private String getTwilioAccountSecret() { return this.TwilioAccountSecret; }
-
-    private SendSMS sendSMS = null;
-    private SendSMS getSenderFunction() { return sendSMS; }
-
-    private boolean twilioInitialized = false;
-    private boolean isTwilioInitialized() { return this.twilioInitialized; }
-    private void setTwilioInitialized(final boolean tf) { this.twilioInitialized = tf; }
+    private String twilioAccountSID = null;
+    private String twilioAccountSecret = null;
+    private SendSMS sendSMS = (ph, s, p, a) -> "SID";
+    private boolean isTwilioInitialized = false;
 
     public LambdaHandler() {
         this.ddb = DynamoDbClient.builder()
@@ -128,14 +115,15 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
                 .region(Region.US_WEST_2)
                 .build();
 
-        this.sendSMS = (ph, s, p, a) -> sendSMS(ph, s, p, a);
+        this.sendSMS = LambdaHandler::sendSMSviaTwilio;
     }
 
     public LambdaHandler(final DynamoDbClient dynamoDbClient, final SecretsManagerClient secretsManagerClient) {
         this.ddb = dynamoDbClient;
         this.smc = secretsManagerClient;
-        this.twilioInitialized = true;
-        this.sendSMS = (ph, s, p, a) -> testSendSMS(ph, s, p, a);
+        // Use default implementation of sendSMS
+        // Don't attempt to initialize Twilio SDK
+        this.isTwilioInitialized = true;
     }
 
     public void getSecrets() throws java.io.IOException {
@@ -152,38 +140,49 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
                 secrets.secretString(),
                 new TypeReference<Map<String, String>>(){});
 
-        this.SecretSnowmanTable = secretKeysAndValues.get("SecretSnowmanTable");
-        this.AdminPhoneNumber = new PhoneNumber(secretKeysAndValues.get("AdminPhoneNumber"));
-        this.SecretSnowmanPhoneNumber = new PhoneNumber(secretKeysAndValues.get("SecretSnowmanPhoneNumber"));
-        this.TwilioAccountSID = secretKeysAndValues.get("TwilioAccountSID");
-        this.TwilioAccountSecret = secretKeysAndValues.get("TwilioAccountSecret");
+        this.secretSnowmanTable = secretKeysAndValues.get("SecretSnowmanTable");
+        this.adminPhoneNumber = new PhoneNumber(secretKeysAndValues.get("AdminPhoneNumber"));
+        this.secretSnowmanPhoneNumber = new PhoneNumber(secretKeysAndValues.get("SecretSnowmanPhoneNumber"));
+        this.twilioAccountSID = secretKeysAndValues.get("TwilioAccountSID");
+        this.twilioAccountSecret = secretKeysAndValues.get("TwilioAccountSecret");
     }
 
-    public String createResponse(final SecretSnowmanState state, final String key) {
-        final SecretSnowmanState recipient = dynamoLookup(this.ddb, getSecretSnowmanTable(), state.assigned().toString());
+    private static String createResponse(
+            final DynamoDbClient ddb,
+            final String secretSnowmanTable,
+            final Map<String, String> twimlMap,
+            final SecretSnowmanState state,
+            final String key) {
+
+        final SecretSnowmanState recipient = dynamoLookup(
+                ddb,
+                secretSnowmanTable,
+                state.assigned().toString());
+
         String text = null;
         if(INTRO_COMMAND.equals(key)) {
-            text = String.format(this.twimlMap.get(key), state.name(), recipient.name());
+            text = String.format(twimlMap.get(key), state.name(), recipient.name());
         }
         else if(MENU_COMMAND.equals(key)) {
-            text = this.twimlMap.get(key);
+            text = twimlMap.get(key);
         }
         else if(UNKNOWN_COMMAND.equals(key)) {
-            text = String.format(this.twimlMap.get(key), key);
+            text = String.format(twimlMap.get(key), key);
         }
         else {
-            text = String.format(this.twimlMap.get(key), recipient.name());
+            text = String.format(twimlMap.get(key), recipient.name());
         }
 
         return toTWIML(text);
     }
 
-    public static SecretSnowmanState dynamoLookup(
+    private static SecretSnowmanState dynamoLookup(
             final DynamoDbClient dbc,
             final String secretSnowmanTable,
             final String phoneNumber) {
 
-        final Map<String, AttributeValue> key = singletonMap("phone-number", AttributeValue.builder().s(phoneNumber).build());
+        final Map<String, AttributeValue> key =
+                singletonMap("phone-number", AttributeValue.builder().s(phoneNumber).build());
 
         final GetItemRequest get = GetItemRequest.builder()
                 .consistentRead(true)
@@ -195,12 +194,13 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
         return SecretSnowmanState.from(response.item());
     }
 
-    public static List<SecretSnowmanState> dynamoScanGifts(
+    private static List<SecretSnowmanState> dynamoScanGifts(
             final DynamoDbClient dbc,
             final String secretSnowmanTable,
             final boolean giftGiven) {
 
-        final Map<String, AttributeValue> value = singletonMap(":tf", AttributeValue.builder().bool(giftGiven).build());
+        final Map<String, AttributeValue> value =
+                singletonMap(":tf", AttributeValue.builder().bool(giftGiven).build());
 
         final ScanRequest scan = ScanRequest.builder()
                 .consistentRead(true)
@@ -212,10 +212,10 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
 
         final ScanResponse response = dbc.scan(scan);
         final Stream<Map<String, AttributeValue>> s = response.items().stream();
-        return s.map(i -> SecretSnowmanState.from(i)).collect(Collectors.toList());
+        return s.map(SecretSnowmanState::from).collect(Collectors.toList());
     }
 
-    public static List<SecretSnowmanState> dynamoScanAll(
+    private static List<SecretSnowmanState> dynamoScanAll(
             final DynamoDbClient dbc,
             final String secretSnowmanTable) {
         final ScanRequest scan = ScanRequest.builder()
@@ -225,17 +225,17 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
 
         final ScanResponse response = dbc.scan(scan);
         final Stream<Map<String, AttributeValue>> s = response.items().stream();
-        return s.map(i -> SecretSnowmanState.from(i)).collect(Collectors.toList());
+        return s.map(SecretSnowmanState::from).collect(Collectors.toList());
     }
 
-    public String assignGifts(
+    private String assignGifts(
             final PhoneNumber secretSnowmanPhoneNumber,
             final DynamoDbClient dynamoDbClient,
             final String secretSnowmanTable,
             final List<SecretSnowmanState> people) {
 
         // Shuffle the list of people until every person is aligned with someone they're allowed to be assigned
-        final List<SecretSnowmanState> assignments = people.stream().collect(Collectors.toList());
+        final List<SecretSnowmanState> assignments = new ArrayList<>(people);
         do {
             Collections.shuffle(assignments);
         } while(!constraintsSatisfied(people, assignments));
@@ -249,8 +249,16 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
         while (peopleIterator.hasNext() && assignmentsIterator.hasNext()) {
             final SecretSnowmanState person = peopleIterator.next();
             final SecretSnowmanState assignment = assignmentsIterator.next();
-            dynamoUpdateAssigned(dynamoDbClient, secretSnowmanTable, person.phone().toString(), assignment.phone().toString());
-            messageSIDs.add(person.name() + ": " + sendIntroSMS(this.getSenderFunction(), secretSnowmanPhoneNumber, person, assignment) + '\n');
+
+            dynamoUpdateAssigned(
+                    dynamoDbClient,
+                    secretSnowmanTable,
+                    person.phone().toString(),
+                    assignment.phone().toString());
+
+            messageSIDs.add(
+                    person.name() + ": " +
+                            sendIntroSMS(this.sendSMS, secretSnowmanPhoneNumber, person, assignment) + '\n');
         }
 
         return toTWIML(messageSIDs.stream().collect(Collectors.joining()));
@@ -275,7 +283,7 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
         return true;
     }
 
-    public static void dynamoUpdateAssigned(
+    private static void dynamoUpdateAssigned(
             final DynamoDbClient dbc,
             final String secretSnowmanTable,
             final String phoneNumber,
@@ -297,7 +305,7 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
         dbc.updateItem(update);
     }
 
-    interface SendSMS {
+    private interface SendSMS {
         String send(
                 final PhoneNumber secretSnowmanPhoneNumber,
                 final String format,
@@ -305,79 +313,76 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
                 final SecretSnowmanState assignment);
     }
 
-    public static String testSendSMS(
-            final PhoneNumber secretSnowmanPhoneNumber,
-            final String format,
-            final SecretSnowmanState person,
-            final SecretSnowmanState assignment) {
-
-        return "SID";
-    }
-
-    public static String sendSMS(
+    private static String sendSMSviaTwilio(
         final PhoneNumber secretSnowmanPhoneNumber,
         final String format,
         final SecretSnowmanState person,
         final SecretSnowmanState assignment) {
 
-        final com.twilio.rest.api.v2010.account.Message message = com.twilio.rest.api.v2010.account.Message.creator(
-                person.phone(),
-                secretSnowmanPhoneNumber,
-                String.format(format, person.name(), assignment.name())).create();
+        final com.twilio.rest.api.v2010.account.Message message =
+                com.twilio.rest.api.v2010.account.Message.creator(
+                        person.phone(),
+                        secretSnowmanPhoneNumber,
+                        String.format(format, person.name(), assignment.name())).create();
 
         return message.getSid();
     }
 
-    public static String sendIntroSMS(
-            final SendSMS sendSmsF,
+    private static String sendIntroSMS(
+            final SendSMS sendSmsFunction,
             final PhoneNumber secretSnowmanPhoneNumber,
             final SecretSnowmanState person,
             final SecretSnowmanState assignment) {
 
-        return sendSmsF.send(secretSnowmanPhoneNumber, INTRO_FORMAT, person, assignment);
+        return sendSmsFunction.send(secretSnowmanPhoneNumber, INTRO_FORMAT, person, assignment);
     }
 
 
-    public static String sendReminderSMS(
-            final SendSMS sendSmsF,
+    private static String sendReminderSMS(
+            final SendSMS sendSmsFunction,
             final PhoneNumber secretSnowmanPhoneNumber,
             final SecretSnowmanState person,
             final SecretSnowmanState assignment) {
 
-        return sendSmsF.send(secretSnowmanPhoneNumber, REMINDER_FORMAT, person, assignment);
+        return sendSmsFunction.send(secretSnowmanPhoneNumber, REMINDER_FORMAT, person, assignment);
     }
 
-    public String remindNoGifts(
+    private static String remindNoGifts(
+            final SendSMS sendSmsFunction,
             final PhoneNumber secretSnowmanPhoneNumber,
             final List<SecretSnowmanState> people) {
 
-        String status = "";
+        StringBuilder status = new StringBuilder("");
         for(final SecretSnowmanState person : people) {
             if(!person.gifted()) {
                 final Optional<SecretSnowmanState> assignedO =
                         people.stream().filter(p -> p.phone().equals(person.assigned())).findAny();
 
                 if(assignedO.isPresent()) {
-                    sendReminderSMS(this.getSenderFunction(), secretSnowmanPhoneNumber, person, assignedO.get());
-                    status += person.name() + ": success\n";
+                    sendReminderSMS(sendSmsFunction, secretSnowmanPhoneNumber, person, assignedO.get());
+                    status.append(person.name());
+                    status.append(": success\n");
                 }
                 else {
-                    status += person.name() + ": failure\n";
+                    status.append(person.name());
+                    status.append(": failure\n");
                 }
             }
         }
 
-        return toTWIML(status);
+        return toTWIML(status.toString());
     }
 
-    public static void dynamoUpdateGifted(
+    private static void dynamoUpdateGifted(
             final DynamoDbClient dbc,
             final String secretSnowmanTable,
             final String phoneNumber,
             final boolean giftGiven) {
 
-        final Map<String, AttributeValue> key = singletonMap("phone-number", AttributeValue.builder().s(phoneNumber).build());
-        final Map<String, AttributeValue> gifted = singletonMap(":gifted", AttributeValue.builder().bool(giftGiven).build());
+        final Map<String, AttributeValue> key =
+                singletonMap("phone-number", AttributeValue.builder().s(phoneNumber).build());
+        final Map<String, AttributeValue> gifted =
+                singletonMap(":gifted", AttributeValue.builder().bool(giftGiven).build());
 
         final UpdateItemRequest update = UpdateItemRequest.builder()
                 .tableName(secretSnowmanTable)
@@ -397,16 +402,13 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
     public String handleRequest(final Map<String, Object> req, final Context context) {
         try {
             this.getSecrets();
-            final String secretSnowmanTable = this.getSecretSnowmanTable();
-            final PhoneNumber adminPhoneNumber = this.getAdminPhoneNumber();
-            final PhoneNumber secretSnowmanPhoneNumber = this.getSecretSnowmanPhoneNumber();
+
+            // Unit tests set this to true to avoid using the real Twilio SDK
+            if(!this.isTwilioInitialized) {
+                Twilio.init(this.twilioAccountSID, this.twilioAccountSecret);
+            }
 
             String key = UNKNOWN_COMMAND;
-
-            if(!isTwilioInitialized()) {
-                Twilio.init(this.getTwilioAccountSID(), this.getTwilioAccountSecret());
-                this.setTwilioInitialized(true);
-            }
 
             if (req.containsKey(BODY)) {
                 key = URLDecoder.decode(req.get(BODY).toString(), "UTF-8").toLowerCase().trim();
@@ -415,45 +417,48 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
             if (req.containsKey(FROM)) {
                 final PhoneNumber from = new PhoneNumber(URLDecoder.decode(req.get(FROM).toString(), "UTF-8"));
 
-                if (key.equals(CHECK_NO_GIFT_COMMAND) && from.equals(adminPhoneNumber)) {
+                if (key.equals(CHECK_NO_GIFT_COMMAND) && from.equals(this.adminPhoneNumber)) {
 
                     return toTWIML(
                             extractNames(
                                     "No Gift:\n",
-                                    dynamoScanGifts(this.ddb, secretSnowmanTable,false)));
+                                    dynamoScanGifts(this.ddb, this.secretSnowmanTable,false)));
 
-                } else if (key.equals(CHECK_GIFTED_COMMAND) && from.equals(adminPhoneNumber)) {
+                } else if (key.equals(CHECK_GIFTED_COMMAND) && from.equals(this.adminPhoneNumber)) {
 
                     return toTWIML(
                             extractNames(
                                     "Gift:\n",
                                     dynamoScanGifts(this.ddb, secretSnowmanTable,true)));
 
-                } else if (key.equals(ASSIGN_GIFTS_COMMAND) && from.equals(adminPhoneNumber)) {
+                } else if (key.equals(ASSIGN_GIFTS_COMMAND) && from.equals(this.adminPhoneNumber)) {
 
                     return assignGifts(
-                            secretSnowmanPhoneNumber,
+                            this.secretSnowmanPhoneNumber,
                             this.ddb,
-                            secretSnowmanTable,
-                            dynamoScanAll(this.ddb, secretSnowmanTable));
+                            this.secretSnowmanTable,
+                            dynamoScanAll(this.ddb, this.secretSnowmanTable));
 
                 } else if (key.equals(REMIND_COMMAND) && from.equals(adminPhoneNumber)) {
 
-                    return remindNoGifts(secretSnowmanPhoneNumber, dynamoScanAll(this.ddb, secretSnowmanTable));
+                    return remindNoGifts(
+                            this.sendSMS,
+                            this.secretSnowmanPhoneNumber,
+                            dynamoScanAll(this.ddb, this.secretSnowmanTable));
 
                 } else {
-                    final SecretSnowmanState state = dynamoLookup(this.ddb, secretSnowmanTable, from.toString());
+                    final SecretSnowmanState state = dynamoLookup(this.ddb, this.secretSnowmanTable, from.toString());
 
                     if (!twimlMap.containsKey(key)) {
-                        return toTWIML(String.format(UNKNOWN_FORMAT, key) + from + ", " + adminPhoneNumber);
+                        return toTWIML(String.format(UNKNOWN_FORMAT, key) + from + ", " + this.adminPhoneNumber);
                     } else {
                         if (key.equals(GIFTED_COMMAND)) {
-                            dynamoUpdateGifted(this.ddb, secretSnowmanTable, from.toString(), true);
+                            dynamoUpdateGifted(this.ddb, this.secretSnowmanTable, from.toString(), true);
                         } else if (key.equals(RESET_COMMAND)) {
-                            dynamoUpdateGifted(this.ddb, secretSnowmanTable, from.toString(), false);
+                            dynamoUpdateGifted(this.ddb, this.secretSnowmanTable, from.toString(), false);
                         }
 
-                        return createResponse(state, key);
+                        return createResponse(this.ddb, this.secretSnowmanTable, this.twimlMap, state, key);
                     }
                 }
             } else {
