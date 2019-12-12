@@ -140,7 +140,7 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
                 secrets.secretString(),
                 new TypeReference<Map<String, String>>(){});
 
-        this.secretSnowmanTable = secretKeysAndValues.get("SecretSnowmanTable");
+        this.secretSnowmanTable = secretKeysAndValues.get("StateDynamoTable");
         this.adminPhoneNumber = new PhoneNumber(secretKeysAndValues.get("AdminPhoneNumber"));
         this.secretSnowmanPhoneNumber = new PhoneNumber(secretKeysAndValues.get("SecretSnowmanPhoneNumber"));
         this.twilioAccountSID = secretKeysAndValues.get("TwilioAccountSID");
