@@ -77,6 +77,7 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
     public static final String CHECK_GIFTED_COMMAND = "gifts";
     public static final String ASSIGN_GIFTS_COMMAND = "assign gifts";
     public static final String REMIND_COMMAND = "remind";
+    public static final String RESEND_COMMAND = "resend";
     public static final String REMINDER_FORMAT = "\u2603 Secret Snowman here!\u2744 %s, you still need to buy a gift for %s.\uD83C\uDF81";
 
     private final Map<String, String> twimlMap =  mapOf(
@@ -399,6 +400,18 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
         return prefix + people.stream().map(p -> p.name() + " (" + p.phone() + ")\n").collect(Collectors.joining());
     }
 
+    private static String resendIntro(
+            final DynamoDbClient ddb,
+            final String secretSnowmanTable,
+            final String to,
+            final SendSMS sendSMS,
+            final PhoneNumber secretSnowmanPhoneNumber) {
+
+        final SecretSnowmanState person = dynamoLookup(ddb, secretSnowmanTable, to);
+        final SecretSnowmanState assignment = dynamoLookup(ddb, secretSnowmanTable, person.assigned().toString());
+        return sendIntroSMS(sendSMS, secretSnowmanPhoneNumber, person, assignment);
+    }
+
     public String handleRequest(final Map<String, Object> req, final Context context) {
         try {
             this.getSecrets();
@@ -445,7 +458,15 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
                             this.sendSMS,
                             this.secretSnowmanPhoneNumber,
                             dynamoScanAll(this.ddb, this.secretSnowmanTable));
-
+                } else if (key.startsWith(RESEND_COMMAND) && from.equals(adminPhoneNumber)) {
+                    final String to = key.substring(RESEND_COMMAND.length()).trim();
+                    return toTWIML(
+                            resendIntro(
+                                    this.ddb,
+                                    this.secretSnowmanTable,
+                                    to,
+                                    this.sendSMS,
+                                    this.secretSnowmanPhoneNumber));
                 } else {
                     final SecretSnowmanState state = dynamoLookup(this.ddb, this.secretSnowmanTable, from.toString());
 
