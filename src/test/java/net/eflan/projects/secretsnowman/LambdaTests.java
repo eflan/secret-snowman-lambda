@@ -31,16 +31,19 @@ public class LambdaTests {
     public static Map<String, AttributeValue> makeItem(
             final String name,
             final String phone,
+            final String address,
             final List<String> cannot,
             final String assigned,
             final boolean giftPurchased) {
 
-        final List<AttributeValue> cannotAttributes = cannot.stream().map(s -> AttributeValue.builder().s(s).build()).collect(Collectors.toList());
+        final List<AttributeValue> cannotAttributes = cannot.stream().map(
+                s -> AttributeValue.builder().s(s).build()).collect(Collectors.toList());
         final AttributeValue cannotMatch =
                 AttributeValue.builder().l(cannotAttributes).build();
 
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(SecretSnowmanState.PHONE_NUMBER_KEY, AttributeValue.builder().s(phone).build());
+        item.put(SecretSnowmanState.ADDRESS_KEY, AttributeValue.builder().s(address).build());
         item.put(SecretSnowmanState.GIFT_GIVER_NAME_KEY, AttributeValue.builder().s(name).build());
         item.put(SecretSnowmanState.CANNOT_MATCH_KEY, cannotMatch);
         item.put(SecretSnowmanState.ASSIGNED_KEY, AttributeValue.builder().s(assigned).build());
@@ -75,6 +78,7 @@ public class LambdaTests {
         final Map<String, AttributeValue> item = makeItem(
                 "unit test name",
                 "+15555550002",
+                "address",
                 Arrays.asList("+15555550003"),
                 "+15555550004",
                 false);
@@ -90,35 +94,40 @@ public class LambdaTests {
     public void testIntro() {
         Assert.assertEquals(
                 "\"intro\" command is handled",
-                handler.handleRequest(setupTest("intro"), mock(Context.class)), LambdaHandler.toTWIML(String.format(LambdaHandler.INTRO_FORMAT, "unit test name", "unit test name")));
+                LambdaHandler.toTWIML(String.format(LambdaHandler.INTRO_FORMAT, "unit test name", "unit test name", "address")),
+                handler.handleRequest(setupTest("intro"), mock(Context.class)));
     }
 
     @Test
     public void testMenu() {
         Assert.assertEquals(
                 "\"menu\" command is handled",
-                handler.handleRequest(setupTest("menu"), mock(Context.class)), LambdaHandler.toTWIML(LambdaHandler.MENU_FORMAT));
+                LambdaHandler.toTWIML(LambdaHandler.MENU_FORMAT),
+                handler.handleRequest(setupTest("menu"), mock(Context.class)));
     }
 
     @Test
     public void testAssignment() {
         Assert.assertEquals(
                 "\"assignment\" command is handled",
-                handler.handleRequest(setupTest("assignment"), mock(Context.class)), LambdaHandler.toTWIML(String.format(LambdaHandler.ASSIGNMENT_FORMAT, "unit test name")));
+                LambdaHandler.toTWIML(String.format(LambdaHandler.ASSIGNMENT_FORMAT, "unit test name")),
+                handler.handleRequest(setupTest("assignment"), mock(Context.class)));
     }
 
     @Test
     public void testGifted() {
         Assert.assertEquals(
                 "\"gifted\" command is handled",
-                handler.handleRequest(setupTest("gifted"), mock(Context.class)), LambdaHandler.toTWIML(String.format(LambdaHandler.GIFTED_FORMAT, "unit test name")));
+                LambdaHandler.toTWIML(String.format(LambdaHandler.GIFTED_FORMAT, "unit test name")),
+                handler.handleRequest(setupTest("gifted"), mock(Context.class)));
     }
 
     @Test
     public void testReset() {
         Assert.assertEquals(
                 "\"reset\" command is handled",
-                handler.handleRequest(setupTest("reset"), mock(Context.class)), LambdaHandler.toTWIML(String.format(LambdaHandler.RESET_FORMAT, "unit test name")));
+                LambdaHandler.toTWIML(String.format(LambdaHandler.RESET_FORMAT, "unit test name")),
+                handler.handleRequest(setupTest("reset"), mock(Context.class)));
     }
 
     @Test
@@ -126,6 +135,7 @@ public class LambdaTests {
         final Map<String, AttributeValue> item1 = makeItem(
                 "unit test name 1",
                 "+15555550002",
+                "address",
                 Arrays.asList("+15555550003"),
                 "+15555550004",
                 false);
@@ -133,6 +143,7 @@ public class LambdaTests {
         final Map<String, AttributeValue> item2 = makeItem(
                 "unit test name 2",
                 "+15555550003",
+                "address",
                 Arrays.asList("+15555550004", "+15555550005"),
                 "+15555550002",
                 false);
@@ -140,6 +151,7 @@ public class LambdaTests {
         final Map<String, AttributeValue> item3 = makeItem(
                 "unit test name 3",
                 "+15555550004",
+                "address",
                 Arrays.asList("+15555550002"),
                 "+15555550003",
                 false);
@@ -158,6 +170,7 @@ public class LambdaTests {
         final Map<String, AttributeValue> item1 = makeItem(
                 "unit test name 1",
                 "+15555550002",
+                "address",
                 Arrays.asList("+15555550003"),
                 "+15555550004",
                 true);
@@ -165,6 +178,7 @@ public class LambdaTests {
         final Map<String, AttributeValue> item2 = makeItem(
                 "unit test name 2",
                 "+15555550003",
+                "address",
                 Arrays.asList("+15555550004", "+15555550005"),
                 "+15555550002",
                 false);
@@ -172,6 +186,7 @@ public class LambdaTests {
         final Map<String, AttributeValue> item3 = makeItem(
                 "unit test name 3",
                 "+15555550004",
+                "address",
                 Arrays.asList("+15555550002"),
                 "+15555550003",
                 true);

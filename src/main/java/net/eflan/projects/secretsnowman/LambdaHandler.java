@@ -39,24 +39,11 @@ import java.util.stream.Stream;
 import static java.util.Collections.singletonMap;
 
 public class LambdaHandler implements RequestHandler<Map<String, Object>, String>{
-    // Hide Java8 ugliness in helper method
-    static Map<String, String> mapOf(final String ... args) {
-        final String[][] pairs = new String[args.length / 2][2];
-        for(int i = 0; i < args.length; i += 2) {
-            pairs[i / 2][0] = args[i];
-            pairs[i / 2][1] = args[i + 1];
-        }
-
-        return Stream.of(pairs).collect(Collectors.collectingAndThen(
-                Collectors.toMap(data -> data[0], data -> data[1]),
-                Collections::unmodifiableMap));
-    }
-
     private final DynamoDbClient ddb;
     private final SecretsManagerClient smc;
 
     public static final String INTRO_COMMAND = "intro";
-    public static final String INTRO_FORMAT = "\u2603 Ahoy %s! Welcome to Secret Snowman!️\n\uD83C\uDF81You are buying a present for %s.\uD83C\uDF81\nPlease reply \"gifted\" to mark your gift as purchased.\uD83C\uDF81\nYou can reply \"menu\" for more options.\u2744";
+    public static final String INTRO_FORMAT = "\u2603 Ahoy %s! Welcome to Secret Snowman!️\n\uD83C\uDF81You are buying a present for %s (%s).\uD83C\uDF81\nPlease reply \"gifted\" to mark your gift as purchased.\uD83C\uDF81\nYou can reply \"menu\" for more options.\u2744";
 
     public static final String MENU_COMMAND = "menu";
     public static final String MENU_FORMAT = "\u26C4 I'm here to help!\n\u2744Text \"gifted\" to mark your gift as purchased.\n\u2744Text \"assignment\" to see whom you are assigned.\n\u2744Text \"reset\" if you accidentally marked your gift as purchased.\n\u2744Text \"intro\" to see the introductory message again.\u2603";
@@ -80,7 +67,7 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
     public static final String RESEND_COMMAND = "resend";
     public static final String REMINDER_FORMAT = "\u2603 Secret Snowman here!\u2744 %s, you still need to buy a gift for %s.\uD83C\uDF81";
 
-    private final Map<String, String> twimlMap =  mapOf(
+    private final Map<String, String> twimlMap =  Map.of(
             INTRO_COMMAND, INTRO_FORMAT,
             MENU_COMMAND, MENU_FORMAT,
             GIFTED_COMMAND, GIFTED_FORMAT,
@@ -162,7 +149,7 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
 
         String text = null;
         if(INTRO_COMMAND.equals(key)) {
-            text = String.format(twimlMap.get(key), state.name(), recipient.name());
+            text = String.format(twimlMap.get(key), state.name(), recipient.name(), recipient.address());
         }
         else if(MENU_COMMAND.equals(key)) {
             text = twimlMap.get(key);
@@ -324,7 +311,7 @@ public class LambdaHandler implements RequestHandler<Map<String, Object>, String
                 com.twilio.rest.api.v2010.account.Message.creator(
                         person.phone(),
                         secretSnowmanPhoneNumber,
-                        String.format(format, person.name(), assignment.name())).create();
+                        String.format(format, person.name(), assignment.name(), assignment.address())).create();
 
         return message.getSid();
     }
